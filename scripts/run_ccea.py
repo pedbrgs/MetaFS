@@ -95,7 +95,7 @@ def load_data_conf(random_state: int) -> dict:
     }
 
 
-def load_ccea_conf(random_state: int, is_debug: bool) -> dict:
+def load_ccea_conf(random_state: int, is_debug: bool, n_workers: int = 1) -> dict:
     return {
         "coevolution": {
             "subpop_sizes": [50],
@@ -128,7 +128,7 @@ def load_ccea_conf(random_state: int, is_debug: bool) -> dict:
             "eval_function": "balanced_accuracy",
             "eval_mode": "k_fold",
             "weights": [1.0, 0.0],
-            "n_workers": 6
+            "n_workers": n_workers
         },
         "optimizer": {
             "method": "GA",
@@ -280,7 +280,7 @@ def run(args: dict) -> None:
             )
             dataloader.get_ready()
             # Load CCEA configuration
-            ccea_conf = load_ccea_conf(random_state=random_state, is_debug=args.is_debug)
+            ccea_conf = load_ccea_conf(random_state=random_state, is_debug=args.is_debug, n_workers=args.n_workers)
 
             # Initialize CCEA
             start_time = time.time()
@@ -324,6 +324,7 @@ def parse_args():
     parser.add_argument("--se-thresh", type=float, default=0.03, help="standard error threshold")
     parser.add_argument("--min-runs", type=int, default=5, help="minimum number of runs per dataset")
     parser.add_argument("--max-runs", type=int, default=50, help="maximum number of runs per dataset")
+    parser.add_argument("--n-workers", type=int, default=1, help="number of parallel workers for CCEA evaluation (default: 1)")
     parser.add_argument("--is-debug", action="store_true", help="debug mode")
     return parser.parse_args()
 
