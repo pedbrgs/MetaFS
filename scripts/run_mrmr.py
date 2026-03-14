@@ -78,11 +78,13 @@ class MinimumRedundancyMaximumRelevance(ABC):
     def __init__(
         self,
         estimator: ClassifierMixin,
-        random_state: int = 1234
+        random_state: int = 1234,
+        n_jobs: int = 1
     ):
         """Init baseline class."""
         self.base_estimator = estimator
         self.random_state = random_state
+        self.n_jobs = n_jobs
 
     def select(
             self,
@@ -112,7 +114,7 @@ class MinimumRedundancyMaximumRelevance(ABC):
             method="MID",       # MID uses Mutual Information which supports n_jobs
             regression=False,
             max_features=n_features,
-            n_jobs=3,          # Uses all available cores
+            n_jobs=self.n_jobs,
             random_state=self.random_state
         )
 
@@ -403,7 +405,8 @@ def run(args: dict) -> None:
             base_model = RandomForestClassifier(random_state=random_state, class_weight="balanced")
             mrmr_selector = MinimumRedundancyMaximumRelevance(
                 estimator=base_model,
-                random_state=random_state
+                random_state=random_state,
+                n_jobs=args.n_jobs
             )
 
             # Tuning percentage of features to keep
@@ -473,6 +476,7 @@ def parse_args():
     parser.add_argument("--se-thresh", type=float, default=0.03, help="standard error threshold")
     parser.add_argument("--min-runs", type=int, default=5, help="minimum number of runs per dataset")
     parser.add_argument("--max-runs", type=int, default=50, help="maximum number of runs per dataset")
+    parser.add_argument("--n-jobs", type=int, default=12, help="number of parallel workers for MRMR (default: 1, -1 for all cores)")
     parser.add_argument("--is-debug", action="store_true", help="debug mode")
     return parser.parse_args()
 
