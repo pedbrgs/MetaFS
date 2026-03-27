@@ -1,6 +1,7 @@
 import gc
 import os
 import time
+import signal
 import random
 import logging
 import argparse
@@ -26,6 +27,17 @@ warnings.filterwarnings(action="ignore", category=DeprecationWarning)
 warnings.filterwarnings(action="ignore", category=ConvergenceWarning)
 
 from pyccea.utils.datasets import DataLoader
+
+MAX_FS_HOURS = 12
+MAX_FS_SECONDS = MAX_FS_HOURS * 3600
+
+
+class FeatureSelectionTimeout(Exception):
+    pass
+
+
+def _timeout_handler(signum, frame):
+    raise FeatureSelectionTimeout(f"Feature selection exceeded {MAX_FS_HOURS}-hour time limit.")
 
 
 def compute_evaluation_metrics(y_true: np.ndarray, y_pred: np.ndarray, subset_name: str) -> dict:
@@ -255,7 +267,7 @@ def get_completed_datasets(
 
 
 def check_stopping_criteria(results: pd.DataFrame, args, dataset_name: str, n_runs: int) -> bool:
-    metric_series = results[results["dataset"] == dataset_name][args.metric_col]
+    metric_series = results[results["dataset"] == dataset_name][args.metric_col].dropna()
     if metric_series.empty:
         return False
     errors = cumulative_standard_error(metric_series)
@@ -339,12 +351,30 @@ def run(args) -> None:
             )
 
             # Run Boruta feature selection on full training set
+            signal.signal(signal.SIGALRM, _timeout_handler)
             start_fs = time.time()
-            selected_features = selector.select(
-                X_train=dataloader.X_train,
-                y_train=dataloader.y_train,
-                feature_names=feature_names,
-            )
+            signal.alarm(MAX_FS_SECONDS)
+            try:
+                selected_features = selector.select(
+                    X_train=dataloader.X_train,
+                    y_train=dataloader.y_train,
+                    feature_names=feature_names,
+                )
+                signal.alarm(0)
+            except FeatureSelectionTimeout:
+                signal.alarm(0)
+                fs_time = time.time() - start_fs
+                logging.warning(f"Run #{n_runs} exceeded {MAX_FS_HOURS}h time limit.")
+                run_stats = {
+                    "dataset": dataset_name,
+                    "run": n_runs,
+                    "method": "boruta",
+                    "fs_time": round(fs_time, 2),
+                    "n_selected_features": None,
+                }
+                results = pd.concat([results, pd.DataFrame([run_stats])], ignore_index=True)
+                save_results(results=results, output_file=output_file)
+                break
             fs_time = time.time() - start_fs
             logging.info(f"Boruta selected {len(selected_features)} features.")
 

@@ -1,6 +1,7 @@
 import gc
 import os
 import time
+import signal
 import random
 import logging
 import argparse
@@ -27,6 +28,17 @@ warnings.filterwarnings(action="ignore", category=DeprecationWarning)
 warnings.filterwarnings(action="ignore", category=ConvergenceWarning)
 
 from pyccea.utils.datasets import DataLoader
+
+MAX_FS_HOURS = 12
+MAX_FS_SECONDS = MAX_FS_HOURS * 3600
+
+
+class FeatureSelectionTimeout(Exception):
+    pass
+
+
+def _timeout_handler(signum, frame):
+    raise FeatureSelectionTimeout(f"Feature selection exceeded {MAX_FS_HOURS}-hour time limit.")
 
 
 def compute_evaluation_metrics(y_true: np.ndarray, y_pred: np.ndarray, subset_name: str) -> dict:
@@ -337,8 +349,7 @@ def get_completed_datasets(
 
 
 def check_stopping_criteria(results: pd.DataFrame, args: dict, dataset_name: str, n_runs: int) -> bool:
-
-    metric_series = results[results["dataset"] == dataset_name][args.metric_col]
+    metric_series = results[results["dataset"] == dataset_name][args.metric_col].dropna()
     if metric_series.empty:
         return False
     errors = cumulative_standard_error(metric_series)
@@ -409,28 +420,48 @@ def run(args: dict) -> None:
                 n_jobs=args.n_jobs
             )
 
-            # Tuning percentage of features to keep
-            start_tuning = time.time()
-            tuning_results = mrmr_selector.tune(
-                dataloader=dataloader,
-                eval_function=balanced_accuracy_score,
-                step_size=0.25 if args.is_debug else 0.05
-            )
-            tuning_time = time.time() - start_tuning
-            best_k = tuning_results["best_k"]
-
             feature_names = [f"feat_{i}" for i in range(dataloader.n_features)]
             X_train_df = pd.DataFrame(dataloader.X_train, columns=feature_names)
             X_test_df = pd.DataFrame(dataloader.X_test, columns=feature_names)
 
-            # Select the best k features
-            start_fs = time.time()
-            selected_features = mrmr_selector.select(
-                X_train=X_train_df,
-                y_train=pd.Series(dataloader.y_train),
-                n_features=best_k
-            )
-            fs_time = time.time() - start_fs
+            # Tune number of features and select best k features
+            signal.signal(signal.SIGALRM, _timeout_handler)
+            start_tuning = time.time()
+            signal.alarm(MAX_FS_SECONDS)
+            try:
+                tuning_results = mrmr_selector.tune(
+                    dataloader=dataloader,
+                    eval_function=balanced_accuracy_score,
+                    step_size=0.25 if args.is_debug else 0.05
+                )
+                tuning_time = time.time() - start_tuning
+                best_k = tuning_results["best_k"]
+
+                start_fs = time.time()
+                selected_features = mrmr_selector.select(
+                    X_train=X_train_df,
+                    y_train=pd.Series(dataloader.y_train),
+                    n_features=best_k
+                )
+                signal.alarm(0)
+                fs_time = time.time() - start_fs
+            except FeatureSelectionTimeout:
+                signal.alarm(0)
+                elapsed = round(time.time() - start_tuning, 2)
+                logging.warning(f"Run #{n_runs} exceeded {MAX_FS_HOURS}h time limit.")
+                run_stats = {
+                    "dataset": dataset_name,
+                    "run": n_runs,
+                    "tuning_time": None,
+                    "fs_time": elapsed,
+                    "n_selected_features": None,
+                    "feature_values": None,
+                    "cv_avgs": None,
+                    "cv_stds": None,
+                }
+                results = pd.concat([results, pd.DataFrame([run_stats])], ignore_index=True)
+                save_results(results=results)
+                break
 
             # Final estimator using the selected features
             final_model = mrmr_selector._reset_estimator()

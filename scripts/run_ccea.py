@@ -1,6 +1,7 @@
 import gc
 import os
 import time
+import signal
 import random
 import logging
 import argparse
@@ -12,6 +13,17 @@ warnings.filterwarnings(action="ignore", category=DeprecationWarning)
 warnings.filterwarnings(action="ignore", category=ConvergenceWarning)
 
 from pyccea.coevolution import CCPSTFG
+
+MAX_FS_HOURS = 12
+MAX_FS_SECONDS = MAX_FS_HOURS * 3600
+
+
+class FeatureSelectionTimeout(Exception):
+    pass
+
+
+def _timeout_handler(signum, frame):
+    raise FeatureSelectionTimeout(f"Feature selection exceeded {MAX_FS_HOURS}-hour time limit.")
 from pyccea.utils.datasets import DataLoader
 from pyccea.evaluation.wrapper import WrapperEvaluation
 
@@ -216,8 +228,7 @@ def get_overall_stats(**kwargs) -> dict:
 
 
 def check_stopping_criteria(results: pd.DataFrame, args: dict, dataset_name: str, n_runs: int) -> bool:
-
-    metric_series = results[results["dataset"] == dataset_name][args.metric_col]
+    metric_series = results[results["dataset"] == dataset_name][args.metric_col].dropna()
     if metric_series.empty:
         return False
     errors = cumulative_standard_error(metric_series)
@@ -287,9 +298,28 @@ def run(args: dict) -> None:
             ccea = CCPSTFG(conf=ccea_conf, data=dataloader, verbose=False)
             init_time = time.time() - start_time
             logging.info(f"CCEA initialization completed in {(init_time/60):.2f} minutes.")
+
             # Run feature selection
+            signal.signal(signal.SIGALRM, _timeout_handler)
             start_time = time.time()
-            ccea.optimize()
+            signal.alarm(MAX_FS_SECONDS)
+            try:
+                ccea.optimize()
+                signal.alarm(0)
+            except FeatureSelectionTimeout:
+                signal.alarm(0)
+                fs_time = time.time() - start_time
+                logging.warning(f"Run #{n_runs} exceeded {MAX_FS_HOURS}h time limit.")
+                run_results = pd.DataFrame([{
+                    "dataset": dataset_name,
+                    "run": n_runs,
+                    "feature_selection_time": round(fs_time, 2),
+                }])
+                del dataloader, ccea
+                gc.collect()
+                results = pd.concat([results, run_results], ignore_index=True)
+                save_results(results=results)
+                break
             fs_time = time.time() - start_time
             logging.info(f"Feature selection completed in {(fs_time/60):.2f} minutes.")
 

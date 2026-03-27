@@ -1,6 +1,7 @@
 import gc
 import os
 import time
+import signal
 import random
 import logging
 import argparse
@@ -28,6 +29,17 @@ warnings.filterwarnings(action="ignore", category=DeprecationWarning)
 warnings.filterwarnings(action="ignore", category=ConvergenceWarning)
 
 from pyccea.utils.datasets import DataLoader
+
+MAX_FS_HOURS = 12
+MAX_FS_SECONDS = MAX_FS_HOURS * 3600
+
+
+class FeatureSelectionTimeout(Exception):
+    pass
+
+
+def _timeout_handler(signum, frame):
+    raise FeatureSelectionTimeout(f"Feature selection exceeded {MAX_FS_HOURS}-hour time limit.")
 
 VALID_METHODS = ("mi", "chi2", "f")
 
@@ -331,7 +343,7 @@ def get_completed_datasets(
 
 
 def check_stopping_criteria(results: pd.DataFrame, args, dataset_name: str, n_runs: int) -> bool:
-    metric_series = results[results["dataset"] == dataset_name][args.metric_col]
+    metric_series = results[results["dataset"] == dataset_name][args.metric_col].dropna()
     if metric_series.empty:
         return False
     errors = cumulative_standard_error(metric_series)
@@ -408,26 +420,47 @@ def run(args) -> None:
                 n_jobs=args.n_jobs
             )
 
-            # Tune number of features
+            # Tune number of features and select best k features
+            signal.signal(signal.SIGALRM, _timeout_handler)
             start_tuning = time.time()
-            tuning_results = selector.tune(
-                dataloader=dataloader,
-                eval_function=balanced_accuracy_score,
-                step_size=0.25 if args.is_debug else 0.05
-            )
-            tuning_time = time.time() - start_tuning
-            best_k = tuning_results["best_k"]
-            logging.info(f"Best k={best_k} features selected by tuning.")
+            signal.alarm(MAX_FS_SECONDS)
+            try:
+                tuning_results = selector.tune(
+                    dataloader=dataloader,
+                    eval_function=balanced_accuracy_score,
+                    step_size=0.25 if args.is_debug else 0.05
+                )
+                tuning_time = time.time() - start_tuning
+                best_k = tuning_results["best_k"]
+                logging.info(f"Best k={best_k} features selected by tuning.")
 
-            # Select best k features on full training set
-            start_fs = time.time()
-            selected_features = selector.select(
-                X_train=dataloader.X_train,
-                y_train=dataloader.y_train,
-                feature_names=feature_names,
-                n_features=best_k
-            )
-            fs_time = time.time() - start_fs
+                start_fs = time.time()
+                selected_features = selector.select(
+                    X_train=dataloader.X_train,
+                    y_train=dataloader.y_train,
+                    feature_names=feature_names,
+                    n_features=best_k
+                )
+                signal.alarm(0)
+                fs_time = time.time() - start_fs
+            except FeatureSelectionTimeout:
+                signal.alarm(0)
+                elapsed = round(time.time() - start_tuning, 2)
+                logging.warning(f"Run #{n_runs} exceeded {MAX_FS_HOURS}h time limit.")
+                run_stats = {
+                    "dataset": dataset_name,
+                    "run": n_runs,
+                    "method": args.method,
+                    "tuning_time": None,
+                    "fs_time": elapsed,
+                    "n_selected_features": None,
+                    "feature_values": None,
+                    "cv_avgs": None,
+                    "cv_stds": None,
+                }
+                results = pd.concat([results, pd.DataFrame([run_stats])], ignore_index=True)
+                save_results(results=results, output_file=output_file)
+                break
 
             selected_indices = [feature_names.index(f) for f in selected_features]
 
