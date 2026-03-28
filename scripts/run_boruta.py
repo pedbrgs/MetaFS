@@ -32,7 +32,7 @@ MAX_FS_HOURS = 12
 MAX_FS_SECONDS = MAX_FS_HOURS * 3600
 
 
-class FeatureSelectionTimeout(Exception):
+class FeatureSelectionTimeout(BaseException):
     pass
 
 
