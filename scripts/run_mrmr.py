@@ -1,11 +1,11 @@
 import gc
 import os
 import time
-import signal
 import random
 import logging
 import argparse
 import warnings
+import multiprocessing as mp
 import numpy as np
 import pandas as pd
 from abc import ABC
@@ -37,8 +37,52 @@ class FeatureSelectionTimeout(BaseException):
     pass
 
 
-def _timeout_handler(signum, frame):
-    raise FeatureSelectionTimeout(f"Feature selection exceeded {MAX_FS_HOURS}-hour time limit.")
+class _FoldData:
+    """Picklable proxy for DataLoader, carrying only what the MRMR worker needs."""
+    def __init__(self, folds, n_features, kfolds):
+        self._folds = folds
+        self.n_features = n_features
+        self.kfolds = kfolds
+
+    def get_fold(self, fold_idx, normalize=False):
+        return self._folds[fold_idx]
+
+
+def _mrmr_fs_worker(result_queue, fold_data, X_train, y_train, n_features, random_state, n_jobs, step_size):
+    """Run MRMR tuning and selection in an isolated process.
+
+    Calls os.setpgrp() so the entire process group (including joblib workers)
+    can be killed atomically with os.killpg() on timeout.
+    """
+    os.setpgrp()
+    try:
+        feature_names = [f"feat_{i}" for i in range(n_features)]
+        base_model = RandomForestClassifier(random_state=random_state, class_weight="balanced")
+        mrmr_selector = MinimumRedundancyMaximumRelevance(
+            estimator=base_model,
+            random_state=random_state,
+            n_jobs=n_jobs,
+        )
+        t0 = time.time()
+        tuning_results = mrmr_selector.tune(
+            dataloader=fold_data,
+            eval_function=balanced_accuracy_score,
+            step_size=step_size,
+        )
+        tuning_time = time.time() - t0
+
+        t1 = time.time()
+        X_train_df = pd.DataFrame(X_train, columns=feature_names)
+        selected_features = list(mrmr_selector.select(
+            X_train=X_train_df,
+            y_train=pd.Series(y_train),
+            n_features=tuning_results["best_k"],
+        ))
+        fs_time = time.time() - t1
+
+        result_queue.put(("ok", tuning_results, selected_features, tuning_time, fs_time))
+    except Exception as e:
+        result_queue.put(("error", str(e)))
 
 
 def compute_evaluation_metrics(y_true: np.ndarray, y_pred: np.ndarray, subset_name: str) -> dict:
@@ -424,30 +468,35 @@ def run(args: dict) -> None:
             X_train_df = pd.DataFrame(dataloader.X_train, columns=feature_names)
             X_test_df = pd.DataFrame(dataloader.X_test, columns=feature_names)
 
-            # Tune number of features and select best k features
-            signal.signal(signal.SIGALRM, _timeout_handler)
-            start_tuning = time.time()
-            signal.alarm(MAX_FS_SECONDS)
-            try:
-                tuning_results = mrmr_selector.tune(
-                    dataloader=dataloader,
-                    eval_function=balanced_accuracy_score,
-                    step_size=0.25 if args.is_debug else 0.05
-                )
-                tuning_time = time.time() - start_tuning
-                best_k = tuning_results["best_k"]
+            # Pre-extract folds as numpy arrays so they can be pickled into the subprocess.
+            folds = [dataloader.get_fold(i, normalize=False) for i in range(dataloader.kfolds)]
+            fold_data = _FoldData(
+                folds=folds,
+                n_features=dataloader.n_features,
+                kfolds=dataloader.kfolds,
+            )
 
-                start_fs = time.time()
-                selected_features = mrmr_selector.select(
-                    X_train=X_train_df,
-                    y_train=pd.Series(dataloader.y_train),
-                    n_features=best_k
-                )
-                signal.alarm(0)
-                fs_time = time.time() - start_fs
-            except FeatureSelectionTimeout:
-                signal.alarm(0)
+            result_queue = mp.Queue()
+            proc = mp.Process(
+                target=_mrmr_fs_worker,
+                args=(
+                    result_queue, fold_data,
+                    dataloader.X_train, dataloader.y_train,
+                    dataloader.n_features, random_state, args.n_jobs,
+                    0.25 if args.is_debug else 0.05,
+                ),
+            )
+            start_tuning = time.time()
+            proc.start()
+            proc.join(timeout=MAX_FS_SECONDS)
+
+            if proc.is_alive():
                 elapsed = round(time.time() - start_tuning, 2)
+                try:
+                    os.killpg(proc.pid, 9)  # SIGKILL to entire process group
+                except ProcessLookupError:
+                    pass
+                proc.join()
                 logging.warning(f"Run #{n_runs} exceeded {MAX_FS_HOURS}h time limit.")
                 run_stats = {
                     "dataset": dataset_name,
@@ -462,6 +511,12 @@ def run(args: dict) -> None:
                 results = pd.concat([results, pd.DataFrame([run_stats])], ignore_index=True)
                 save_results(results=results)
                 break
+
+            outcome = result_queue.get() if not result_queue.empty() else ("error", "Worker produced no result")
+            if outcome[0] == "error":
+                logging.error(f"Feature selection failed: {outcome[1]}")
+                break
+            _, tuning_results, selected_features, tuning_time, fs_time = outcome
 
             # Final estimator using the selected features
             final_model = mrmr_selector._reset_estimator()

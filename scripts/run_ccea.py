@@ -1,10 +1,10 @@
 import gc
 import os
 import time
-import signal
 import random
 import logging
 import argparse
+import multiprocessing as mp
 import pandas as pd
 
 import warnings
@@ -22,8 +22,6 @@ class FeatureSelectionTimeout(BaseException):
     pass
 
 
-def _timeout_handler(signum, frame):
-    raise FeatureSelectionTimeout(f"Feature selection exceeded {MAX_FS_HOURS}-hour time limit.")
 from pyccea.utils.datasets import DataLoader
 from pyccea.evaluation.wrapper import WrapperEvaluation
 
@@ -227,6 +225,43 @@ def get_overall_stats(**kwargs) -> dict:
     return pd.DataFrame.from_dict(run_stats, orient="index").T
 
 
+def _ccea_worker(result_queue, data_path, dataset_name, data_conf, ccea_conf, run_num):
+    """Run CCEA init + optimize + evaluation in an isolated process.
+
+    Calls os.setpgrp() so the entire process group (including n_workers subprocesses
+    spawned by CCEA) can be killed atomically with os.killpg() on timeout.
+    """
+    os.setpgrp()
+    try:
+        dataloader = build_dataloader(
+            data_path=data_path,
+            dataset_name=dataset_name,
+            data_conf=data_conf,
+        )
+        dataloader.get_ready()
+
+        t0 = time.time()
+        ccea = CCPSTFG(conf=ccea_conf, data=dataloader, verbose=False)
+        init_time = time.time() - t0
+
+        t1 = time.time()
+        ccea.optimize()
+        fs_time = time.time() - t1
+
+        train_metrics = evaluate_context_vector(ccea, subset="train")
+        test_metrics = evaluate_context_vector(ccea, subset="test")
+        run_stats = get_overall_stats(
+            dataset_name=dataset_name,
+            ccea=ccea,
+            run=run_num,
+            init_time=init_time,
+            fs_time=fs_time,
+        )
+        result_queue.put(("ok", run_stats, train_metrics, test_metrics, init_time, fs_time))
+    except Exception as e:
+        result_queue.put(("error", str(e)))
+
+
 def check_stopping_criteria(results: pd.DataFrame, args: dict, dataset_name: str, n_runs: int) -> bool:
     metric_series = results[results["dataset"] == dataset_name][args.metric_col].dropna()
     if metric_series.empty:
@@ -282,60 +317,45 @@ def run(args: dict) -> None:
             random_state = random.randint(0, 10_000)
             logging.info(f"Run #{n_runs} | Random state {random_state}")
 
-            # Load data configuration and dataloader
+            # Load data and CCEA configuration (dataloader is built inside the worker)
             data_conf = load_data_conf(random_state=random_state)
-            dataloader = build_dataloader(
-                data_path=data_path,
-                dataset_name=dataset_name,
-                data_conf=data_conf
-            )
-            dataloader.get_ready()
             # Load CCEA configuration
             ccea_conf = load_ccea_conf(random_state=random_state, is_debug=args.is_debug, n_workers=args.n_workers)
 
-            # Initialize CCEA
+            result_queue = mp.Queue()
+            proc = mp.Process(
+                target=_ccea_worker,
+                args=(result_queue, data_path, dataset_name, data_conf, ccea_conf, n_runs),
+            )
             start_time = time.time()
-            ccea = CCPSTFG(conf=ccea_conf, data=dataloader, verbose=False)
-            init_time = time.time() - start_time
-            logging.info(f"CCEA initialization completed in {(init_time/60):.2f} minutes.")
+            proc.start()
+            proc.join(timeout=MAX_FS_SECONDS)
 
-            # Run feature selection
-            signal.signal(signal.SIGALRM, _timeout_handler)
-            start_time = time.time()
-            signal.alarm(MAX_FS_SECONDS)
-            try:
-                ccea.optimize()
-                signal.alarm(0)
-            except FeatureSelectionTimeout:
-                signal.alarm(0)
-                fs_time = time.time() - start_time
+            if proc.is_alive():
+                fs_time = round(time.time() - start_time, 2)
+                try:
+                    os.killpg(proc.pid, 9)  # SIGKILL to entire process group
+                except ProcessLookupError:
+                    pass
+                proc.join()
                 logging.warning(f"Run #{n_runs} exceeded {MAX_FS_HOURS}h time limit.")
                 run_results = pd.DataFrame([{
                     "dataset": dataset_name,
                     "run": n_runs,
-                    "feature_selection_time": round(fs_time, 2),
+                    "feature_selection_time": fs_time,
                 }])
-                del dataloader, ccea
-                gc.collect()
                 results = pd.concat([results, run_results], ignore_index=True)
                 save_results(results=results)
                 break
-            fs_time = time.time() - start_time
+
+            outcome = result_queue.get() if not result_queue.empty() else ("error", "Worker produced no result")
+            if outcome[0] == "error":
+                logging.error(f"Feature selection failed: {outcome[1]}")
+                break
+            _, run_stats, train_metrics, test_metrics, init_time, fs_time = outcome
+            logging.info(f"CCEA initialization completed in {(init_time/60):.2f} minutes.")
             logging.info(f"Feature selection completed in {(fs_time/60):.2f} minutes.")
 
-            # Evaluate selected features
-            train_metrics = evaluate_context_vector(ccea, subset="train")
-            test_metrics = evaluate_context_vector(ccea, subset="test")
-            # Get overall run statistics
-            run_stats = get_overall_stats(
-                dataset_name=dataset_name,
-                ccea=ccea,
-                run=n_runs,
-                init_time=init_time,
-                fs_time=fs_time
-            )
-
-            del dataloader, ccea
             gc.collect()
 
             # Aggregate and save results
