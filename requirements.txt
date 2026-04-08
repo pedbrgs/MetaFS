@@ -2,3 +2,4 @@ git+https://github.com/pedbrgs/pyccea.git@main
 boruta==0.4.3
 mrmr-selection==0.2.8
 feature-engine==1.9.3
+sklearn-genetic-opt==0.10.1
