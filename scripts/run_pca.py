@@ -159,6 +159,8 @@ class PCAReducer:
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train)
 
+        max_components = min(X_train.shape[0], X_train.shape[1])
+        n_components = min(n_components, max_components)
         pca = PCA(n_components=n_components, random_state=self.random_state)
         X_train_reduced = pca.fit_transform(X_train_scaled)
 
@@ -200,10 +202,13 @@ class PCAReducer:
         cv_stds = []
 
         n_features = dataloader.n_features
+        X_first, _, _, _ = dataloader.get_fold(0, normalize=False)
+        max_components = min(X_first.shape[0], n_features)
 
         n_steps = int(1.0 / step_size)
         k_percentages = np.linspace(step_size, 1.0, n_steps)[:-1]
-        k_components = [max(1, int(p * n_features)) for p in k_percentages]
+        k_components = [max(1, min(int(p * n_features), max_components)) for p in k_percentages]
+        k_components = sorted(set(k_components))
 
         for k in k_components:
             logging.info(f"Evaluating k={k} components ({k / n_features * 100:.1f}%)")
