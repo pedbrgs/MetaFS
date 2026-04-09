@@ -196,12 +196,19 @@ def get_completed_datasets(
         min_runs: int,
         max_runs: int
     ) -> list:
+    if metric_col not in results.columns:
+        timed_out = results.groupby("dataset").size()
+        return timed_out.index.tolist()
+    timed_out_datasets = (
+        results.groupby("dataset")[metric_col]
+        .apply(lambda s: s.isna().any())
+    )
     errors = results.groupby("dataset")[metric_col].apply(cumulative_standard_error)
     achieved_errors = errors.groupby(level=0).last()
     run_counts = results.groupby("dataset").size()
     cond_error_met = (achieved_errors <= standard_error_threshold) & (run_counts >= min_runs)
     cond_error_failed = (achieved_errors > standard_error_threshold) & (run_counts >= max_runs)
-    completed_mask = cond_error_met | cond_error_failed
+    completed_mask = cond_error_met | cond_error_failed | timed_out_datasets
     return achieved_errors.index[completed_mask].tolist()
 
 
