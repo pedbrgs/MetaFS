@@ -59,7 +59,6 @@ def _ga_worker(
             keep_top_k=1,
             elitism=True,
             verbose=True,
-            random_state=random_state,
         )
 
         t0 = time.time()
