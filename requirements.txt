@@ -3,3 +3,4 @@ boruta==0.4.3
 mrmr-selection==0.2.8
 feature-engine==1.9.3
 deap==1.4.1
+psutil==7.1.1
