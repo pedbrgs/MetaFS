@@ -8,8 +8,7 @@ import warnings
 import multiprocessing as mp
 import numpy as np
 import pandas as pd
-from sklearn.base import ClassifierMixin
-from sklearn.base import clone as sklearn_clone
+from deap import base, creator, tools, algorithms
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.metrics import (
@@ -20,7 +19,7 @@ from sklearn.metrics import (
     f1_score,
     confusion_matrix
 )
-from sklearn_genetic import GAFeatureSelectionCV
+from sklearn.model_selection import cross_val_score
 
 warnings.filterwarnings(action="ignore", category=DeprecationWarning)
 warnings.filterwarnings(action="ignore", category=ConvergenceWarning)
@@ -35,44 +34,100 @@ def _ga_worker(
     result_queue,
     X_train, y_train,
     n_features, random_state, n_jobs, kfolds,
-    population_size, generations, crossover_prob, mutation_prob,
+    population_size, generations, crossover_prob, mutation_prob, patience,
 ):
     """Run genetic algorithm feature selection in an isolated process.
 
     Calls os.setpgrp() so the entire process group (including joblib workers)
     can be killed atomically with os.killpg() on timeout.
     """
-    os.setpgrp()
+    if hasattr(os, "setpgrp"):
+        os.setpgrp()
     try:
-        feature_names = [f"feat_{i}" for i in range(n_features)]
-        base_model = RandomForestClassifier(random_state=random_state, class_weight="balanced")
+        import random as _random
+        _random.seed(random_state)
+        np.random.seed(random_state)
 
-        selector = GAFeatureSelectionCV(
-            estimator=base_model,
-            cv=kfolds,
-            scoring="balanced_accuracy",
-            population_size=population_size,
-            generations=generations,
-            crossover_probability=crossover_prob,
-            mutation_probability=mutation_prob,
-            n_jobs=n_jobs,
-            keep_top_k=1,
-            elitism=True,
-            verbose=True,
-        )
+        if not hasattr(creator, "FitnessMax"):
+            creator.create("FitnessMax", base.Fitness, weights=(1.0,))
+        if not hasattr(creator, "Individual"):
+            creator.create("Individual", list, fitness=creator.FitnessMax)
+
+        estimator = RandomForestClassifier(random_state=random_state, class_weight="balanced")
+
+        def evaluate(individual):
+            selected = [i for i, bit in enumerate(individual) if bit == 1]
+            if len(selected) == 0:
+                return (0.0,)
+            scores = cross_val_score(
+                estimator, X_train[:, selected], y_train,
+                cv=kfolds, scoring="balanced_accuracy", n_jobs=1
+            )
+            return (float(scores.mean()),)
+
+        toolbox = base.Toolbox()
+        toolbox.register("attr_bool", _random.randint, 0, 1)
+        toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.attr_bool, n=n_features)
+        toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+        toolbox.register("evaluate", evaluate)
+        toolbox.register("mate", tools.cxTwoPoint)
+        toolbox.register("mutate", tools.mutFlipBit, indpb=1.0 / n_features)
+        toolbox.register("select", tools.selTournament, tournsize=3)
+
+        pop = toolbox.population(n=population_size)
+        hof = tools.HallOfFame(1)
+
+        stats = tools.Statistics(lambda ind: ind.fitness.values)
+        stats.register("max", np.max)
+        stats.register("avg", np.mean)
+
+        history = {"fitness_max": [], "fitness_avg": []}
+
+        # Evaluate initial population
+        fitnesses = list(map(toolbox.evaluate, pop))
+        for ind, fit in zip(pop, fitnesses):
+            ind.fitness.values = fit
+        hof.update(pop)
+
+        best_fitness = hof[0].fitness.values[0]
+        no_improvement = 0
 
         t0 = time.time()
-        selector.fit(X_train, y_train)
+
+        for gen in range(generations):
+            offspring = algorithms.varOr(pop, toolbox, population_size, crossover_prob, mutation_prob)
+
+            invalid = [ind for ind in offspring if not ind.fitness.valid]
+            fitnesses = list(map(toolbox.evaluate, invalid))
+            for ind, fit in zip(invalid, fitnesses):
+                ind.fitness.values = fit
+
+            pop = toolbox.select(pop + offspring, population_size)
+            hof.update(pop)
+
+            record = stats.compile(pop)
+            history["fitness_max"].append(float(record["max"]))
+            history["fitness_avg"].append(float(record["avg"]))
+            logging.info(f"Gen {gen + 1}/{generations} | max={record['max']:.4f} avg={record['avg']:.4f}")
+
+            current_best = hof[0].fitness.values[0]
+            if current_best > best_fitness:
+                best_fitness = current_best
+                no_improvement = 0
+            else:
+                no_improvement += 1
+
+            if patience is not None and no_improvement >= patience:
+                logging.info(f"Early stopping at generation {gen + 1} ({patience} generations without improvement).")
+                break
+
         fit_time = time.time() - t0
 
-        selected_mask = selector.best_features_
-        selected_features = [name for name, sel in zip(feature_names, selected_mask) if sel]
-        best_cv_score = selector.best_score_
-        history = selector.history_
-
-        result_queue.put(("ok", selected_features, best_cv_score, history, fit_time))
+        selected_features = [f"feat_{i}" for i, bit in enumerate(hof[0]) if bit == 1]
+        result_queue.put(("ok", selected_features, best_fitness, history, fit_time))
     except Exception as e:
-        result_queue.put(("error", str(e)))
+        import traceback
+        result_queue.put(("error", traceback.format_exc()))
 
 
 def compute_evaluation_metrics(y_true: np.ndarray, y_pred: np.ndarray, subset_name: str) -> dict:
@@ -134,7 +189,7 @@ def list_datasets(data_dir: str) -> list:
             })
     data = pd.DataFrame(data_stats)
     data["computational_effort"] = data["num_samples"] + data["num_features"]
-    return data.sort_values("computational_effort", ascending=False)["data_path"].values.tolist()
+    return data.sort_values("computational_effort", ascending=True)["data_path"].values.tolist()
 
 
 def set_logger() -> None:
@@ -292,6 +347,7 @@ def run(args) -> None:
                     2 if args.is_debug else args.generations,
                     args.crossover_prob,
                     args.mutation_prob,
+                    args.patience,
                 ),
             )
             start_time = time.time()
@@ -301,7 +357,10 @@ def run(args) -> None:
             if proc.is_alive():
                 elapsed = round(time.time() - start_time, 2)
                 try:
-                    os.killpg(proc.pid, 9)  # SIGKILL to entire process group
+                    if hasattr(os, "killpg"):
+                        os.killpg(proc.pid, 9)
+                    else:
+                        proc.kill()
                 except ProcessLookupError:
                     pass
                 proc.join()
@@ -352,8 +411,8 @@ def run(args) -> None:
                 "fs_time": round(fit_time, 2),
                 "n_selected_features": len(selected_features),
                 "best_cv_score": round(best_cv_score, 4),
-                "ga_fitness_max": [history["fitness_max"].tolist()],
-                "ga_fitness_avg": [history["fitness_avg"].tolist()],
+                "ga_fitness_max": [history["fitness_max"]],
+                "ga_fitness_avg": [history["fitness_avg"]],
                 **train_metrics,
                 **test_metrics
             }
@@ -387,6 +446,12 @@ def parse_args():
     parser.add_argument("--generations", type=int, default=40, help="Number of GA generations (default: 40).")
     parser.add_argument("--crossover-prob", type=float, default=0.8, help="Crossover probability (default: 0.8).")
     parser.add_argument("--mutation-prob", type=float, default=0.1, help="Mutation probability (default: 0.1).")
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=None,
+        help="Generations without improvement before early stopping (default: None, disabled)."
+    )
     parser.add_argument("--is-debug", action="store_true", help="Debug mode: fewer datasets and 2 generations.")
     return parser.parse_args()
 
