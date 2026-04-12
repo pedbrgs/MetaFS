@@ -43,6 +43,7 @@ def _ga_worker(
     """
     if hasattr(os, "setpgrp"):
         os.setpgrp()
+    set_logger()
     try:
         import random as _random
         _random.seed(random_state)
