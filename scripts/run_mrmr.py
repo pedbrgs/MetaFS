@@ -562,7 +562,7 @@ def parse_args():
     parser.add_argument("--se-thresh", type=float, default=0.03, help="standard error threshold")
     parser.add_argument("--min-runs", type=int, default=5, help="minimum number of runs per dataset")
     parser.add_argument("--max-runs", type=int, default=50, help="maximum number of runs per dataset")
-    parser.add_argument("--n-jobs", type=int, default=1, help="number of parallel workers for MRMR (default: 1, -1 for all cores)")
+    parser.add_argument("--n-jobs", type=int, default=12, help="number of parallel workers for MRMR (default: 1, -1 for all cores)")
     parser.add_argument("--is-debug", action="store_true", help="debug mode")
     return parser.parse_args()
 
