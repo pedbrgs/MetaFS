@@ -238,47 +238,48 @@ class FilterFeatureSelector:
                 f"Ignoring n_jobs for method='{self.method}'."
             )
 
-        k_values = []
-        cv_scores = []
-        cv_stds = []
-
         n_features = dataloader.n_features
-        feature_names = [f"feat_{i}" for i in range(n_features)]
 
         n_steps = int(1.0 / step_size)
         k_percentages = np.linspace(step_size, 1.0, n_steps)[:-1]
         k_features = [max(1, int(p * n_features)) for p in k_percentages]
 
-        for k in k_features:
-            logging.info(f"Evaluating k={k} features ({k / n_features * 100:.1f}%)")
-            fold_scores = []
+        # Accumulate per-fold scores before computing stats
+        fold_scores_per_k = [[] for _ in k_features]
 
-            for fold_idx in range(dataloader.kfolds):
-                X_f_train, y_f_train, X_f_val, y_f_val = dataloader.get_fold(fold_idx, normalize=False)
+        for fold_idx in range(dataloader.kfolds):
+            X_f_train, y_f_train, X_f_val, y_f_val = dataloader.get_fold(fold_idx, normalize=False)
 
-                selected_features = self.select(
-                    X_train=X_f_train,
-                    y_train=y_f_train,
-                    feature_names=feature_names,
-                    n_features=k
-                )
+            # chi2 requires non-negative values only for scoring; RF uses original X
+            X_score = X_f_train.copy()
+            if self.method == "chi2":
+                scaler = MinMaxScaler()
+                X_score = scaler.fit_transform(X_score)
 
-                # Get column indices for selected features
-                selected_indices = [feature_names.index(f) for f in selected_features]
+            # Score all features once per fold, then rank by score descending
+            score_func = self._build_score_func()
+            selector = SelectKBest(score_func=score_func, k="all")
+            selector.fit(X_score, y_f_train)
+            ranked_indices = np.argsort(selector.scores_)[::-1]
+
+            for k_idx, k in enumerate(k_features):
+                selected_indices = ranked_indices[:k]
 
                 estimator = self._reset_estimator()
                 estimator.fit(X_f_train[:, selected_indices], y_f_train)
 
                 y_pred = estimator.predict(X_f_val[:, selected_indices])
-                score = eval_function(y_true=y_f_val, y_pred=y_pred)
-                fold_scores.append(score)
+                fold_scores_per_k[k_idx].append(eval_function(y_true=y_f_val, y_pred=y_pred))
 
-            cv_mean = np.mean(fold_scores)
-            cv_std = np.std(fold_scores)
+        k_values = []
+        cv_scores = []
+        cv_stds = []
 
+        for k_idx, k in enumerate(k_features):
+            logging.info(f"Evaluating k={k} features ({k / n_features * 100:.1f}%)")
             k_values.append(k)
-            cv_scores.append(cv_mean)
-            cv_stds.append(cv_std)
+            cv_scores.append(np.mean(fold_scores_per_k[k_idx]))
+            cv_stds.append(np.std(fold_scores_per_k[k_idx]))
 
         best_k_index = np.argmax(cv_scores)
         return {
