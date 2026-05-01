@@ -66,7 +66,7 @@ def _pca_worker(result_queue, fold_data, X_train, y_train, n_features, random_st
         tuning_time = time.time() - t0
 
         t1 = time.time()
-        X_train_reduced = reducer.transform(
+        X_train_reduced, _, _ = reducer.transform(
             X_train=X_train,
             n_components=tuning_results["best_k"],
         )
