@@ -197,45 +197,51 @@ class PCAReducer:
         dict
             best_k, k_values, cv_scores, cv_stds.
         """
-        k_values = []
-        cv_scores = []
-        cv_stds = []
-
         n_features = dataloader.n_features
-        X_first, _, _, _ = dataloader.get_fold(0, normalize=False)
-        max_components = min(X_first.shape[0], n_features)
 
         n_steps = int(1.0 / step_size)
         k_percentages = np.linspace(step_size, 1.0, n_steps)[:-1]
-        k_components = [max(1, min(int(p * n_features), max_components)) for p in k_percentages]
-        k_components = sorted(set(k_components))
 
-        for k in k_components:
-            logging.info(f"Evaluating k={k} components ({k / n_features * 100:.1f}%)")
-            fold_scores = []
+        # Accumulate per-fold scores before computing stats
+        fold_scores_per_k = None
 
-            for fold_idx in range(dataloader.kfolds):
-                X_f_train, y_f_train, X_f_val, y_f_val = dataloader.get_fold(fold_idx, normalize=False)
+        for fold_idx in range(dataloader.kfolds):
+            X_f_train, y_f_train, X_f_val, y_f_val = dataloader.get_fold(fold_idx, normalize=False)
 
-                X_f_train_red, X_f_val_red, _ = self.transform(
-                    X_train=X_f_train,
-                    n_components=k,
-                    X_test=X_f_val,
-                )
+            # Fit scaler and PCA once per fold with the maximum number of components
+            max_components = min(X_f_train.shape[0], X_f_train.shape[1])
+            scaler = StandardScaler()
+            X_f_train_scaled = scaler.fit_transform(X_f_train)
+            X_f_val_scaled = scaler.transform(X_f_val)
+            pca = PCA(n_components=max_components, random_state=self.random_state)
+            X_f_train_full = pca.fit_transform(X_f_train_scaled)
+            X_f_val_full = pca.transform(X_f_val_scaled)
+
+            k_components = [max(1, min(int(p * n_features), max_components)) for p in k_percentages]
+            k_components = sorted(set(k_components))
+
+            if fold_scores_per_k is None:
+                fold_scores_per_k = [[] for _ in k_components]
+
+            for k_idx, k in enumerate(k_components):
+                X_f_train_red = X_f_train_full[:, :k]
+                X_f_val_red = X_f_val_full[:, :k]
 
                 estimator = self._reset_estimator()
                 estimator.fit(X_f_train_red, y_f_train)
 
                 y_pred = estimator.predict(X_f_val_red)
-                score = eval_function(y_true=y_f_val, y_pred=y_pred)
-                fold_scores.append(score)
+                fold_scores_per_k[k_idx].append(eval_function(y_true=y_f_val, y_pred=y_pred))
 
-            cv_mean = np.mean(fold_scores)
-            cv_std = np.std(fold_scores)
+        k_values = []
+        cv_scores = []
+        cv_stds = []
 
+        for k_idx, k in enumerate(k_components):
+            logging.info(f"Evaluating k={k} components ({k / n_features * 100:.1f}%)")
             k_values.append(k)
-            cv_scores.append(cv_mean)
-            cv_stds.append(cv_std)
+            cv_scores.append(np.mean(fold_scores_per_k[k_idx]))
+            cv_stds.append(np.std(fold_scores_per_k[k_idx]))
 
         best_k_index = np.argmax(cv_scores)
         return {
