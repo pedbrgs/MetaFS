@@ -232,54 +232,49 @@ class MinimumRedundancyMaximumRelevance(ABC):
         """
         Adapted tune method that leverages the existing DataLoader folds.
         """
+        n_features = dataloader.n_features
+        feature_names = [f"feat_{i}" for i in range(n_features)]
+
+        n_steps = int(1.0 / step_size)
+        k_percentages = np.linspace(step_size, 1.0, n_steps)[:-1]
+        k_features = [max(1, int(p * n_features)) for p in k_percentages]
+        max_k = max(k_features)
+
+        # Accumulate per-fold scores before computing stats
+        fold_scores_per_k = [[] for _ in k_features]
+
+        for fold_idx in range(dataloader.kfolds):
+            X_f_train, y_f_train, X_f_val, y_f_val = dataloader.get_fold(fold_idx, normalize=False)
+
+            X_train_df = pd.DataFrame(X_f_train, columns=feature_names)
+            X_val_df = pd.DataFrame(X_f_val, columns=feature_names)
+
+            # Run MRMR once per fold with max_k — MRMR selects greedily in ranked order,
+            # so slicing the first k features is equivalent to running with max_features=k.
+            ranked_features = self.select(
+                X_train=X_train_df,
+                y_train=pd.Series(y_f_train, name="target"),
+                n_features=max_k,
+            )
+
+            for k_idx, k in enumerate(k_features):
+                selected = ranked_features[:k]
+
+                estimator = self._reset_estimator()
+                estimator.fit(X_train_df[selected], y_f_train)
+
+                y_pred = estimator.predict(X_val_df[selected])
+                fold_scores_per_k[k_idx].append(eval_function(y_true=y_f_val, y_pred=y_pred))
+
         k_values = []
         cv_scores = []
         cv_stds = []
 
-        n_features = dataloader.n_features
-        # Create column names since DataLoader returns numpy arrays
-        feature_names = [f"feat_{i}" for i in range(n_features)]
-        
-        # Calculate k values (e.g., 5%, 10%, 15%... of total features)
-        n_steps = int(1.0 / step_size)
-        k_percentages = np.linspace(step_size, 1.0, n_steps)[:-1]
-        k_features = [max(1, int(p * n_features)) for p in k_percentages]
-
-        for k in k_features:
+        for k_idx, k in enumerate(k_features):
             logging.info(f"Evaluating k={k} features ({k/n_features*100:.1f}%)")
-            fold_scores = []
-
-            for fold_idx in range(dataloader.kfolds):
-                # Get folds from dataloader. 
-                # Set normalize=False because get_ready() already handled it.
-                X_f_train, y_f_train, X_f_val, y_f_val = dataloader.get_fold(fold_idx, normalize=False)
-
-                # Convert to DataFrame for MRMR library compatibility
-                X_train_df = pd.DataFrame(X_f_train, columns=feature_names)
-                
-                # Run feature selection
-                selected_features = self.select(
-                    X_train=X_train_df,
-                    y_train=pd.Series(y_f_train, name="target"),
-                    n_features=k
-                )
-
-                # Train and Predict
-                estimator = self._reset_estimator()
-                estimator.fit(X_train_df[selected_features], y_f_train)
-                
-                X_val_df = pd.DataFrame(X_f_val, columns=feature_names)
-                y_pred = estimator.predict(X_val_df[selected_features])
-                
-                score = eval_function(y_true=y_f_val, y_pred=y_pred)
-                fold_scores.append(score)
-
-            cv_mean = np.mean(fold_scores)
-            cv_std = np.std(fold_scores)
-            
             k_values.append(k)
-            cv_scores.append(cv_mean)
-            cv_stds.append(cv_std)
+            cv_scores.append(np.mean(fold_scores_per_k[k_idx]))
+            cv_stds.append(np.std(fold_scores_per_k[k_idx]))
 
         best_k_index = np.argmax(cv_scores)
         return {
