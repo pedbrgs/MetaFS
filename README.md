@@ -3,8 +3,6 @@
 
 # MetaFS
 
-**Meta-learning-based feature selection algorithm recommender for binary classification.**
-
 [![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Hugging Face Spaces](https://img.shields.io/badge/🤗%20Hugging%20Face-Spaces-orange)](https://huggingface.co/spaces/pedbrgs/metafs)
@@ -15,13 +13,7 @@
 
 ## 💡 Overview
 
-Choosing the right feature selection algorithm for a given dataset is a non-trivial task that typically requires extensive experimentation. **MetaFS** addresses this by framing algorithm selection as a meta-learning problem: given a new dataset, a set of meta-features is extracted and used to predict the performance of eight feature selection algorithms across five evaluation criteria.
-
----
-
-## 🤗 Web App
-
-MetaFS is available as a [web application](https://huggingface.co/spaces/pedbrgs/metafs) on Hugging Face Spaces. Upload your dataset, select the target column, adjust the composite criterion weights, and get algorithm rankings in seconds.
+Choosing the right feature selection algorithm for a given dataset is a non-trivial task that typically requires extensive experimentation. **MetaFS** addresses this by framing algorithm selection as a meta-learning problem: given a new dataset, a set of meta-features is extracted and used to predict the performance of eight feature selection algorithms across five evaluation criteria. MetaFS is available as a [web application](https://huggingface.co/spaces/pedbrgs/metafs) on Hugging Face Spaces. Upload your dataset, select the target column, adjust the composite criterion weights, and get algorithm rankings in seconds.
 
 ---
 
