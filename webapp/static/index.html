@@ -468,9 +468,17 @@ async function runRecommend() {
   try {
     const t0 = performance.now();
     const res = await fetch('/api/recommend', { method: 'POST', body: fd });
-    if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Server error'); }
+    if (!res.ok) {
+      let detail = 'Server error';
+      try { const d = await res.json(); detail = d.detail || detail; } catch {}
+      throw new Error(detail);
+    }
     const elapsed = (performance.now() - t0) / 1000;
-    renderResults(await res.json(), elapsed);
+    let resultData;
+    try { resultData = await res.json(); } catch {
+      throw new Error('Server timed out. Enable row sampling for large datasets.');
+    }
+    renderResults(resultData, elapsed);
     setStep(3);
   } catch (err) { setStep(2); showError('config-error', err.message); }
 }

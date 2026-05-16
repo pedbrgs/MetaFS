@@ -8,6 +8,7 @@ import os
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -15,6 +16,13 @@ from meta_features import compute_meta_features, MAX_SAMPLES
 from predictor import predict
 
 app = FastAPI(title="FS Algorithm Recommender")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
@@ -95,6 +103,15 @@ async def recommend(
         raise HTTPException(
             status_code=422,
             detail="Target column must have at least 2 distinct classes.",
+        )
+
+    if not use_sampling and len(df) > MAX_SAMPLES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Row sampling is disabled but the dataset has {len(df):,} rows "
+                f"(limit {MAX_SAMPLES:,}). Enable row sampling to proceed."
+            ),
         )
 
     try:
