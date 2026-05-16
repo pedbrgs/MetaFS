@@ -54,7 +54,7 @@ LOG_TARGETS = {"MeanFeatureSelectionTime"}
 _METADATASET_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "data",
-    "metadataset.parquet",
+    "metadataset.csv",
 )
 
 # ── Model store ──────────────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ _models: dict[tuple[str, str], tuple[StandardScaler, Ridge]] = {}
 
 
 def _train_models() -> None:
-    df = pd.read_parquet(_METADATASET_PATH)
+    df = pd.read_csv(_METADATASET_PATH)
 
     for target in TARGETS:
         for method in METHODS:
