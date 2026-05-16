@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FS Algorithm Recommender</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+
+    .gradient-header {
+      background: linear-gradient(160deg, #0f172a 0%, #1e3a8a 60%, #1d4ed8 100%);
+    }
+    .drop-zone {
+      border: 2px dashed #bfdbfe;
+      transition: all 0.25s ease;
+    }
+    .drop-zone.drag-over {
+      border-color: #2563eb;
+      background-color: #eff6ff;
+    }
+    .drop-zone.loading {
+      pointer-events: none;
+      opacity: 0.7;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.07), 0 4px 16px rgba(0,0,0,.05);
+    }
+
+    .rank-badge {
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 12px;
+      flex-shrink: 0;
+    }
+    .rank-1 { background: #fef3c7; color: #92400e; border: 2px solid #f59e0b; }
+    .rank-2 { background: #f1f5f9; color: #475569; border: 2px solid #94a3b8; }
+    .rank-3 { background: #fef2e8; color: #9a3412; border: 2px solid #c2793f; }
+    .rank-n { background: #f8fafc; color: #94a3b8; border: 2px solid #e2e8f0; }
+
+    .th-accuracy    { color: #16a34a; }
+    .th-f1          { color: #2563eb; }
+    .th-compression { color: #d97706; }
+    .th-time        { color: #dc2626; }
+    .th-composite   { color: #7c3aed; }
+
+    .step-dot {
+      width: 26px; height: 26px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; transition: all 0.3s;
+    }
+    .step-active   { background: #2563eb; color: white; }
+    .step-done     { background: #16a34a; color: white; }
+    .step-inactive { background: #e2e8f0; color: #94a3b8; }
+
+    .spinner {
+      border: 3px solid #dbeafe; border-top-color: #2563eb;
+      border-radius: 50%; width: 38px; height: 38px;
+      animation: spin 0.8s linear infinite;
+    }
+    .spinner-sm {
+      border: 2px solid #dbeafe; border-top-color: #2563eb;
+      border-radius: 50%; width: 22px; height: 22px;
+      animation: spin 0.8s linear infinite; display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .fade-in { animation: fadeIn 0.35s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    input[type=range] { accent-color: #2563eb; }
+
+    .info-pill {
+      display: inline-flex; align-items: center;
+      background: #f1f5f9; color: #475569;
+      font-size: 11.5px; font-weight: 500;
+      padding: 3px 10px; border-radius: 999px;
+    }
+    .info-pill b { color: #1e293b; margin-left: 3px; }
+
+    .algo-table td, .algo-table th { padding: 7px 12px; font-size: 12.5px; }
+    .algo-table thead th {
+      background: #f8fafc; color: #64748b;
+      font-weight: 600; text-transform: uppercase; font-size: 10.5px; letter-spacing: .05em;
+    }
+    .algo-table tbody tr { border-top: 1px solid #f1f5f9; }
+    .algo-table tbody tr:hover { background: #f8fafc; }
+    code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; color: #1e40af; }
+
+    .rank-table th, .rank-table td { padding: 7px 10px; vertical-align: middle; }
+    .rank-table thead th {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .05em; border-bottom: 2px solid #f1f5f9; white-space: nowrap;
+    }
+    .rank-table tbody td { border-top: 1px solid #f8fafc; }
+    .rank-table tbody tr:hover td { background: #fafafa; }
+    .rank-cell { text-align: center; }
+    .score-sub { display: block; font-size: 10px; color: #94a3b8; margin-top: 1px; font-weight: 400; }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+
+<!-- ══════════════════════════ HEADER ══════════════════════════════ -->
+<header class="gradient-header text-white px-6 py-10 shadow-xl">
+  <div class="max-w-5xl mx-auto">
+    <p class="text-blue-300 text-xs font-semibold tracking-widest uppercase mb-2">Meta-Learning · Feature Selection</p>
+    <h1 class="text-3xl font-bold tracking-tight mb-2">FS Algorithm Recommender</h1>
+    <p class="text-blue-200 text-sm max-w-lg leading-relaxed">
+      Upload a classification dataset and get a meta-learning-based ranking of 7 feature selection algorithms across 5 performance criteria.
+    </p>
+  </div>
+</header>
+
+<!-- ══════════════════════════ STEPS ══════════════════════════════ -->
+<div id="steps-bar" class="max-w-5xl mx-auto mt-7 px-4 flex items-center gap-3 select-none">
+  <div class="flex items-center gap-2">
+    <div id="dot-1" class="step-dot step-active">1</div>
+    <span class="text-sm font-medium text-slate-600 hidden sm:block">Upload</span>
+  </div>
+  <div class="flex-1 h-px bg-slate-200"></div>
+  <div class="flex items-center gap-2">
+    <div id="dot-2" class="step-dot step-inactive">2</div>
+    <span class="text-sm font-medium text-slate-400 hidden sm:block">Configure</span>
+  </div>
+  <div class="flex-1 h-px bg-slate-200"></div>
+  <div class="flex items-center gap-2">
+    <div id="dot-3" class="step-dot step-inactive">3</div>
+    <span class="text-sm font-medium text-slate-400 hidden sm:block">Results</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════ MAIN ══════════════════════════════ -->
+<main class="max-w-5xl mx-auto px-4 py-6 space-y-5">
+
+  <!-- ── STEP 1: Upload ── -->
+  <section id="step-upload" class="fade-in space-y-5">
+
+    <!-- Algorithm reference table (first) -->
+    <details class="card p-7">
+      <summary class="text-sm font-semibold text-slate-600 select-none cursor-pointer">Ranked algorithms</summary>
+      <p class="text-sm text-slate-400 mt-1 mb-4">Reference packages for each algorithm evaluated by the recommender.</p>
+      <div class="overflow-x-auto rounded-xl border border-slate-100">
+        <table class="algo-table w-full">
+          <thead>
+            <tr>
+              <th class="text-left rounded-tl-xl">Algorithm</th>
+              <th class="text-left">Package</th>
+              <th class="text-left">Reference class / function</th>
+              <th class="text-left rounded-tr-xl">Install</th>
+            </tr>
+          </thead>
+          <tbody class="text-slate-600">
+            <tr>
+              <td class="font-medium text-slate-800">ANOVA F-value</td>
+              <td>scikit-learn</td>
+              <td><code>SelectKBest(f_classif)</code></td>
+              <td><code>pip install scikit-learn</code></td>
+            </tr>
+            <tr>
+              <td class="font-medium text-slate-800">Boruta</td>
+              <td>boruta</td>
+              <td><code>BorutaPy</code></td>
+              <td><code>pip install boruta</code></td>
+            </tr>
+            <tr>
+              <td class="font-medium text-slate-800">CCEA</td>
+              <td>pyccea</td>
+              <td><code>CCEA</code></td>
+              <td><code>pip install pyccea</code></td>
+            </tr>
+            <tr>
+              <td class="font-medium text-slate-800">Chi-Square</td>
+              <td>scikit-learn</td>
+              <td><code>SelectKBest(chi2)</code></td>
+              <td><code>pip install scikit-learn</code></td>
+            </tr>
+            <tr>
+              <td class="font-medium text-slate-800">Genetic Algorithm</td>
+              <td>deap</td>
+              <td><code>algorithms.eaSimple</code></td>
+              <td><code>pip install deap</code></td>
+            </tr>
+            <tr>
+              <td class="font-medium text-slate-800">MRMR</td>
+              <td>mrmr-selection</td>
+              <td><code>mrmr_classif</code></td>
+              <td><code>pip install mrmr-selection</code></td>
+            </tr>
+            <tr>
+              <td class="font-medium text-slate-800">Mutual Information</td>
+              <td>scikit-learn</td>
+              <td><code>SelectKBest(mutual_info_classif)</code></td>
+              <td><code>pip install scikit-learn</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
+
+    <!-- Upload card (second) -->
+    <div class="card p-7">
+      <h2 class="text-base font-semibold text-slate-700 mb-1">Upload your dataset</h2>
+      <p class="text-sm text-slate-400 mb-5">CSV, Excel (.xlsx / .xls), or Parquet. Must have numeric feature columns and one class label column.</p>
+
+      <div id="drop-zone" class="drop-zone rounded-2xl p-8 text-center cursor-pointer bg-blue-50/40 hover:bg-blue-50 transition" onclick="document.getElementById('file-input').click()">
+        <div id="drop-zone-content">
+          <div class="text-3xl mb-2">📂</div>
+          <p class="text-slate-600 font-medium text-sm">Drag & drop your file here</p>
+          <p class="text-slate-400 text-xs mt-1">or click to browse</p>
+        </div>
+        <p id="file-name" class="mt-3 text-blue-600 font-medium text-sm hidden"></p>
+      </div>
+      <input id="file-input" type="file" accept=".csv,.xlsx,.xls,.parquet" class="hidden" />
+      <div id="upload-error" class="mt-3 text-sm text-red-500 hidden"></div>
+    </div>
+
+  </section>
+
+  <!-- ── STEP 2: Configure ── -->
+  <section id="step-config" class="card p-7 hidden fade-in">
+    <div class="flex items-center justify-between mb-1">
+      <h2 class="text-base font-semibold text-slate-700">Configure</h2>
+      <button onclick="resetAll()" class="text-sm text-slate-400 hover:text-blue-600 transition flex items-center gap-1">
+        ← Change dataset
+      </button>
+    </div>
+    <p class="text-sm text-slate-400 mb-5">Select the target column and set weights for the composite criterion.</p>
+
+    <div id="dataset-info" class="flex flex-wrap gap-2 mb-5"></div>
+
+    <div class="mb-5">
+      <label class="block text-sm font-semibold text-slate-600 mb-2">Target column (class label)</label>
+      <select id="target-select" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white shadow-sm text-sm">
+        <option value="">— select a column —</option>
+      </select>
+    </div>
+
+    <div class="bg-violet-50 rounded-2xl p-5">
+      <p class="text-sm font-semibold text-violet-700 mb-4">Composite criterion weights</p>
+      <div class="space-y-4">
+        <div>
+          <div class="flex justify-between items-center mb-1.5">
+            <label class="text-sm text-slate-600 font-medium">Accuracy</label>
+            <span id="acc-val" class="text-sm font-bold text-blue-600">0.60</span>
+          </div>
+          <input id="acc-slider" type="range" min="0" max="100" value="60" step="1" class="w-full h-2 rounded-full" oninput="syncSliders('acc')" />
+        </div>
+        <div>
+          <div class="flex justify-between items-center mb-1.5">
+            <label class="text-sm text-slate-600 font-medium">Compression</label>
+            <span id="cmp-val" class="text-sm font-bold text-blue-600">0.40</span>
+          </div>
+          <input id="cmp-slider" type="range" min="0" max="100" value="40" step="1" class="w-full h-2 rounded-full" oninput="syncSliders('cmp')" />
+        </div>
+      </div>
+      <p class="text-xs text-violet-400 mt-3">Weights are normalized to sum to 1.</p>
+    </div>
+
+    <div id="sampling-row" class="mt-4 hidden flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+      <div>
+        <p class="text-sm font-medium text-amber-800">Row sampling</p>
+        <p class="text-xs text-amber-600 mt-0.5">Dataset exceeds 5,000 rows. Sampling speeds up computation; disable for exact meta-features.</p>
+      </div>
+      <label class="relative inline-flex items-center cursor-pointer ml-4 shrink-0">
+        <input id="sampling-toggle" type="checkbox" checked class="sr-only peer" />
+        <div class="w-11 h-6 bg-slate-200 peer-focus:ring-2 peer-focus:ring-amber-300 rounded-full peer peer-checked:bg-amber-400 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5"></div>
+      </label>
+    </div>
+
+    <div class="mt-5 flex gap-3">
+      <button onclick="runRecommend()" class="flex-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold py-2.5 px-6 rounded-xl shadow-md transition text-sm">
+        Get Recommendations →
+      </button>
+    </div>
+    <div id="config-error" class="mt-3 text-sm text-red-500 hidden"></div>
+  </section>
+
+  <!-- ── LOADING ── -->
+  <section id="step-loading" class="card p-12 hidden text-center fade-in">
+    <div class="spinner mx-auto mb-4"></div>
+    <p class="text-slate-600 font-medium text-sm">Computing meta-features and generating recommendations…</p>
+    <p class="text-slate-400 text-xs mt-1">This may take a few seconds for large datasets.</p>
+  </section>
+
+  <!-- ── STEP 3: Results ── -->
+  <section id="step-results" class="hidden fade-in space-y-4">
+
+    <!-- Info bar -->
+    <div class="card px-6 py-4">
+      <div id="result-badges" class="flex flex-wrap gap-2"></div>
+    </div>
+    <div class="flex items-center justify-between px-1">
+      <span id="elapsed-display" class="text-xs text-slate-400"></span>
+      <button onclick="resetAll()" class="text-sm bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-600 font-semibold py-1.5 px-4 rounded-lg transition shrink-0">
+        ← New upload
+      </button>
+    </div>
+
+    <!-- Meta-features (before rankings) -->
+    <details class="card px-6 py-4 cursor-pointer">
+      <summary class="text-sm font-semibold text-slate-600 select-none">Computed meta-features</summary>
+      <div id="mf-grid" class="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2"></div>
+    </details>
+
+    <!-- Rankings table -->
+    <div class="card p-6">
+      <h3 class="text-sm font-semibold text-slate-700 mb-4">Algorithm Rankings</h3>
+      <div class="overflow-x-auto">
+        <table class="rank-table w-full">
+          <thead>
+            <tr>
+              <th class="text-left text-slate-500">Algorithm</th>
+              <th class="rank-cell th-accuracy">Accuracy ↑</th>
+              <th class="rank-cell th-f1">F1 Score ↑</th>
+              <th class="rank-cell th-compression">Compression ↑</th>
+              <th class="rank-cell th-time">Time ↓</th>
+              <th class="rank-cell th-composite">Composite ↑</th>
+            </tr>
+          </thead>
+          <tbody id="rankings-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <p class="text-center text-xs text-slate-400">Ridge meta-learners trained on 40 benchmark datasets · Leave-One-Dataset-Out evaluation</p>
+  </section>
+
+</main>
+
+<!-- ══════════════════════════ JS ══════════════════════════════ -->
+<script>
+let uploadedFile = null;
+
+const CRITERIA = [
+  { key: 'Accuracy',    label: 'Accuracy',    thCls: 'th-accuracy',    isTime: false },
+  { key: 'F1 Score',    label: 'F1 Score',    thCls: 'th-f1',          isTime: false },
+  { key: 'Compression', label: 'Compression', thCls: 'th-compression', isTime: false },
+  { key: 'Time',        label: 'Time',        thCls: 'th-time',        isTime: true  },
+  { key: 'Composite',   label: 'Composite',   thCls: 'th-composite',   isTime: false },
+];
+
+function fmt(v, decimals) {
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(v);
+}
+
+function formatScore(v, isTime = false) {
+  if (v == null || isNaN(v)) return '—';
+  const abs = Math.abs(v);
+  if (abs === 0) return '0';
+  if (isTime) {
+    if (abs >= 10000) return fmt(v, 0) + ' s';
+    if (abs >= 100)   return fmt(v, 1) + ' s';
+    if (abs >= 1)     return fmt(v, 2) + ' s';
+    return fmt(v, 4) + ' s';
+  }
+  if (abs >= 10000) return fmt(v, 0);
+  if (abs >= 1)     return fmt(v, 3);
+  return fmt(v, 4);
+}
+
+function syncSliders(changed) {
+  const a = document.getElementById('acc-slider');
+  const c = document.getElementById('cmp-slider');
+  if (changed === 'acc') c.value = 100 - parseInt(a.value);
+  else                   a.value = 100 - parseInt(c.value);
+  document.getElementById('acc-val').textContent = (parseInt(a.value) / 100).toFixed(2);
+  document.getElementById('cmp-val').textContent = (parseInt(c.value) / 100).toFixed(2);
+}
+
+// ── File upload ───────────────────────────────────────────────────────────
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+
+async function handleFile(file) {
+  uploadedFile = file;
+  hideError('upload-error');
+
+  // Show inline loading in drop zone
+  dropZone.classList.add('loading');
+  document.getElementById('drop-zone-content').innerHTML = `
+    <div class="flex flex-col items-center gap-2">
+      <div class="spinner-sm"></div>
+      <p class="text-slate-500 text-sm">Reading <span class="font-medium text-slate-700">${file.name}</span>…</p>
+    </div>`;
+  document.getElementById('file-name').classList.add('hidden');
+
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res = await fetch('/api/columns', { method: 'POST', body: fd });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Server error'); }
+    const data = await res.json();
+    populateTargetSelect(data.columns);
+    showDatasetInfo(data.shape, data.columns);
+    setStep(2);
+  } catch (err) {
+    // Restore drop zone on error
+    dropZone.classList.remove('loading');
+    document.getElementById('drop-zone-content').innerHTML = `
+      <div class="text-3xl mb-2">📂</div>
+      <p class="text-slate-600 font-medium text-sm">Drag & drop your file here</p>
+      <p class="text-slate-400 text-xs mt-1">or click to browse</p>`;
+    showError('upload-error', err.message);
+  }
+}
+
+function populateTargetSelect(cols) {
+  const sel = document.getElementById('target-select');
+  sel.innerHTML = '<option value="">— select a column —</option>';
+  cols.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c; opt.textContent = c;
+    sel.appendChild(opt);
+  });
+  const common = ['label', 'target', 'class', 'y', 'Label', 'Target', 'Class', 'Y'];
+  const match = cols.find(c => common.includes(c));
+  if (match) sel.value = match;
+}
+
+function showDatasetInfo(shape, cols) {
+  document.getElementById('dataset-info').innerHTML = `
+    <span class="info-pill">Rows <b>${fmt(shape[0], 0)}</b></span>
+    <span class="info-pill">Columns <b>${shape[1]}</b></span>
+  `;
+  document.getElementById('sampling-row').classList.toggle('hidden', shape[0] <= 5000);
+}
+
+// ── Recommend ─────────────────────────────────────────────────────────────
+async function runRecommend() {
+  hideError('config-error');
+  const targetCol = document.getElementById('target-select').value;
+  if (!targetCol) { showError('config-error', 'Please select a target column.'); return; }
+  if (!uploadedFile) { showError('config-error', 'No file uploaded.'); return; }
+
+  const accW = parseInt(document.getElementById('acc-slider').value) / 100;
+  const cmpW = parseInt(document.getElementById('cmp-slider').value) / 100;
+  const useSampling = document.getElementById('sampling-toggle').checked;
+
+  setStep('loading');
+  const fd = new FormData();
+  fd.append('file', uploadedFile);
+  fd.append('target_col', targetCol);
+  fd.append('accuracy_weight', accW);
+  fd.append('compression_weight', cmpW);
+  fd.append('use_sampling', useSampling);
+
+  try {
+    const t0 = performance.now();
+    const res = await fetch('/api/recommend', { method: 'POST', body: fd });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Server error'); }
+    const elapsed = (performance.now() - t0) / 1000;
+    renderResults(await res.json(), elapsed);
+    setStep(3);
+  } catch (err) { setStep(2); showError('config-error', err.message); }
+}
+
+// ── Render results ────────────────────────────────────────────────────────
+function renderResults(data, elapsed) {
+  const info = data.dataset_info;
+  const w = data.weights;
+
+  document.getElementById('result-badges').innerHTML = `
+    <span class="info-pill">Number of samples <b>${fmt(info.n_samples, 0)}</b></span>
+    <span class="info-pill">Number of features <b>${info.n_features}</b></span>
+    <span class="info-pill">Number of classes <b>${info.n_classes}</b></span>
+    <span class="info-pill">Target <b>${info.target_col}</b></span>
+    <span class="info-pill">Accuracy weight <b>${(w.accuracy * 100).toFixed(0)}%</b></span>
+    <span class="info-pill">Compression weight <b>${(w.compression * 100).toFixed(0)}%</b></span>
+    ${info.sampled ? `<span class="info-pill" title="Stratified sample used for meta-feature computation">Sampled <b>${fmt(info.n_samples_used, 0)} / ${fmt(info.n_samples, 0)}</b></span>` : ''}
+  `;
+  document.getElementById('elapsed-display').textContent =
+    elapsed != null ? `Computed in ${elapsed.toFixed(2)} s` : '';
+
+  // Meta-features grid
+  document.getElementById('mf-grid').innerHTML = Object.entries(data.meta_features).map(([k, v]) => `
+    <div class="bg-slate-50 rounded-xl px-3 py-2.5">
+      <div class="text-xs text-slate-400 truncate mb-0.5" title="${k}">${k}</div>
+      <div class="text-sm font-bold text-slate-700">${formatScore(v)}</div>
+    </div>`).join('');
+
+  // Rankings table — sorted by composite rank
+  const methods = (data.rankings['Composite'] || [])
+    .slice().sort((a, b) => a.rank - b.rank).map(r => r.method);
+
+  const lookup = {};
+  CRITERIA.forEach(crit => {
+    lookup[crit.key] = {};
+    (data.rankings[crit.key] || []).forEach(r => { lookup[crit.key][r.method] = r; });
+  });
+
+  document.getElementById('rankings-tbody').innerHTML = methods.map(method => {
+    const cells = CRITERIA.map(crit => {
+      const r = lookup[crit.key][method];
+      if (!r) return `<td class="rank-cell">—</td>`;
+      const cls = r.rank === 1 ? 'rank-1' : r.rank === 2 ? 'rank-2' : r.rank === 3 ? 'rank-3' : 'rank-n';
+      return `<td class="rank-cell">
+        <span class="rank-badge ${cls}">${r.rank}</span>
+        <span class="score-sub">${formatScore(r.score, crit.isTime)}</span>
+      </td>`;
+    }).join('');
+    return `<tr><td class="text-sm font-medium text-slate-700 whitespace-nowrap">${method}</td>${cells}</tr>`;
+  }).join('');
+}
+
+// ── Step management ────────────────────────────────────────────────────────
+function setStep(step) {
+  ['step-upload', 'step-config', 'step-loading', 'step-results'].forEach(id =>
+    document.getElementById(id).classList.add('hidden'));
+
+  const n = step === 'loading' ? 3 : step;
+  [1, 2, 3].forEach(i => {
+    document.getElementById(`dot-${i}`).className =
+      'step-dot ' + (i < n ? 'step-done' : i === n ? 'step-active' : 'step-inactive');
+  });
+
+  if (step === 1) {
+    document.getElementById('step-upload').classList.remove('hidden');
+  } else if (step === 2) {
+    // Hide upload, show only configure
+    document.getElementById('step-config').classList.remove('hidden');
+  } else if (step === 'loading') {
+    document.getElementById('step-loading').classList.remove('hidden');
+  } else if (step === 3) {
+    document.getElementById('step-results').classList.remove('hidden');
+  }
+}
+
+function resetAll() {
+  uploadedFile = null;
+  fileInput.value = '';
+  // Restore drop zone to its original state
+  dropZone.classList.remove('loading');
+  document.getElementById('drop-zone-content').innerHTML = `
+    <div class="text-3xl mb-2">📂</div>
+    <p class="text-slate-600 font-medium text-sm">Drag & drop your file here</p>
+    <p class="text-slate-400 text-xs mt-1">or click to browse</p>`;
+  document.getElementById('file-name').classList.add('hidden');
+  document.getElementById('target-select').innerHTML = '<option value="">— select a column —</option>';
+  document.getElementById('acc-slider').value = 60;
+  document.getElementById('cmp-slider').value = 40;
+  syncSliders('acc');
+  hideError('upload-error');
+  hideError('config-error');
+  setStep(1);
+}
+
+function showError(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = '⚠ ' + msg;
+  el.classList.remove('hidden');
+}
+function hideError(id) { document.getElementById(id).classList.add('hidden'); }
+</script>
+</body>
+</html>
