@@ -17,15 +17,17 @@
 
 Choosing the right feature selection algorithm for a given dataset is a non-trivial task that typically requires extensive experimentation. **MetaFS** addresses this by framing algorithm selection as a meta-learning problem: given a new dataset, a set of meta-features is extracted and used to predict the performance of eight feature selection algorithms across five evaluation criteria.
 
-Meta-learners are Ridge regression models trained on a metadataset of 40 benchmark classification datasets under a Leave-One-Dataset-Out (LODO) evaluation protocol. Predictions are generated instantly at inference time, providing ranked recommendations without running any feature selection method on the target dataset.
-
 ---
 
 ## 🤗 Web App
 
-MetaFS is available as a web application on Hugging Face Spaces. Upload your dataset, select the target column, adjust the composite criterion weights, and get algorithm rankings in seconds.
+MetaFS is available as a [web application](https://huggingface.co/spaces/pedbrgs/metafs) on Hugging Face Spaces. Upload your dataset, select the target column, adjust the composite criterion weights, and get algorithm rankings in seconds.
 
-🔗 **[huggingface.co/spaces/pedbrgs/metafs](https://huggingface.co/spaces/pedbrgs/metafs)**
+---
+
+## 🧠 Methodology
+
+Meta-learners are Ridge regression models trained on a metadataset of 40 benchmark classification datasets under a Leave-One-Dataset-Out (LODO) evaluation protocol. Predictions are generated instantly at inference time, providing ranked recommendations without running any feature selection method on the target dataset.
 
 ---
 
@@ -77,45 +79,17 @@ MetaFS extracts the following 10 dataset meta-features to characterize each new 
 
 ---
 
-## 💻 Running Locally
-
-**1. Clone the repository**
-
-```bash
-git clone https://github.com/pedbrgs/Meta-Learning.git
-cd Meta-Learning
-```
-
-**2. Create and activate the environment**
-
-```bash
-conda create -n metafs python=3.11
-conda activate metafs
-pip install -r webapp/requirements.txt
-```
-
-**3. Start the server**
-
-```bash
-cd webapp
-uvicorn app:app --host 0.0.0.0 --port 8000 --reload
-```
-
-Then open [http://localhost:8000](http://localhost:8000) in your browser.
-
----
-
 ## 📜 Citation
 
 If you use MetaFS in your research, please cite:
 
 ```bibtex
-@misc{metafs2025,
-  author    = {Venâncio, Pedro},
-  title     = {{MetaFS}: Meta-learning-based Feature Selection Algorithm Recommender for Binary Classification},
-  year      = {2025},
-  publisher = {GitHub},
-  url       = {https://github.com/pedbrgs/Meta-Learning}
+@misc{MetaFS,
+    author = {Venâncio, Pedro},
+    title = {{MetaFS}: A meta-learning approach to feature selection algorithm recommendation for binary classification tasks},
+    year = {2026},
+    publisher = {GitHub},
+    url = {https://github.com/pedbrgs/MetaFS}
 }
 ```
 
