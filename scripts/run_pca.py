@@ -202,8 +202,16 @@ class PCAReducer:
         n_steps = int(1.0 / step_size)
         k_percentages = np.linspace(step_size, 1.0, n_steps)[:-1]
 
-        # Accumulate per-fold scores before computing stats
-        fold_scores_per_k = None
+        # Determine the global max_components across all folds so that
+        # k_components is computed once with a consistent upper bound, avoiding
+        # the list-length mismatch that caused "list index out of range" when
+        # max_components varied between folds.
+        global_max_components = min(
+            min(dataloader.get_fold(i, normalize=False)[0].shape[0] for i in range(dataloader.kfolds)),
+            n_features,
+        )
+        k_components = sorted(set(max(1, min(int(p * n_features), global_max_components)) for p in k_percentages))
+        fold_scores_per_k = [[] for _ in k_components]
 
         for fold_idx in range(dataloader.kfolds):
             X_f_train, y_f_train, X_f_val, y_f_val = dataloader.get_fold(fold_idx, normalize=False)
@@ -216,12 +224,6 @@ class PCAReducer:
             pca = PCA(n_components=max_components, random_state=self.random_state)
             X_f_train_full = pca.fit_transform(X_f_train_scaled)
             X_f_val_full = pca.transform(X_f_val_scaled)
-
-            k_components = [max(1, min(int(p * n_features), max_components)) for p in k_percentages]
-            k_components = sorted(set(k_components))
-
-            if fold_scores_per_k is None:
-                fold_scores_per_k = [[] for _ in k_components]
 
             for k_idx, k in enumerate(k_components):
                 X_f_train_red = X_f_train_full[:, :k]
