@@ -52,11 +52,18 @@ TARGET_DIRECTION = {
 LOG_TARGETS = {"MeanFeatureSelectionTime"}
 
 _METADATASET_PATH = os.path.join(
-    os.path.dirname(__file__),
+    os.path.dirname(os.path.abspath(__file__)),
     "..",
     "results",
     "metadataset.parquet",
 )
+# If running from repo root (e.g. Render), results/ sits alongside app.py
+if not os.path.exists(_METADATASET_PATH):
+    _METADATASET_PATH = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "results",
+        "metadataset.parquet",
+    )
 
 # ── Model store ──────────────────────────────────────────────────────────────
 
