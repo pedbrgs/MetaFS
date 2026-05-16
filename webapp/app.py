@@ -105,15 +105,6 @@ async def recommend(
             detail="Target column must have at least 2 distinct classes.",
         )
 
-    if not use_sampling and len(df) > MAX_SAMPLES:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Row sampling is disabled but the dataset has {len(df):,} rows "
-                f"(limit {MAX_SAMPLES:,}). Enable row sampling to proceed."
-            ),
-        )
-
     try:
         mf = compute_meta_features(df, target_col, use_sampling=use_sampling)
     except Exception as e:

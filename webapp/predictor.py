@@ -51,6 +51,8 @@ TARGET_DIRECTION = {
 
 LOG_TARGETS = {"MeanFeatureSelectionTime"}
 
+CLIP_TARGETS = {"MeanTestBalancedAccuracy", "MeanTestF1Score", "MeanCompressionRatio"}
+
 _METADATASET_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "data",
@@ -136,6 +138,13 @@ def predict(
             if target in LOG_TARGETS:
                 pred = float(np.expm1(pred))
             raw_preds[target][method] = pred
+
+    # Clip bounded targets to [0, 1]
+    for target in CLIP_TARGETS:
+        for method in METHODS:
+            v = raw_preds[target][method]
+            if not np.isnan(v):
+                raw_preds[target][method] = float(np.clip(v, 0.0, 1.0))
 
     # Build ranked lists for the 4 base criteria
     rankings: dict[str, list[dict]] = {}

@@ -105,18 +105,23 @@
 <body class="bg-slate-50 min-h-screen">
 
 <!-- ══════════════════════════ HEADER ══════════════════════════════ -->
-<header class="gradient-header text-white px-6 py-10 shadow-xl">
+<header class="gradient-header text-white px-6 py-8 shadow-xl">
   <div class="max-w-5xl mx-auto">
     <p class="text-blue-300 text-xs font-semibold tracking-widest uppercase mb-2">Meta-Learning · Feature Selection</p>
-    <h1 class="text-3xl font-bold tracking-tight mb-2">FS Algorithm Recommender</h1>
-    <p class="text-blue-200 text-sm max-w-lg leading-relaxed">
-      Upload a classification dataset and get a meta-learning-based ranking of 8 feature selection algorithms across 5 performance criteria.
-    </p>
+    <h1 class="text-3xl font-bold tracking-tight mb-1">MetaFS</h1>
+    <p class="text-blue-300 text-sm">Meta-learning-based feature selection algorithm recommender for binary classification.</p>
   </div>
 </header>
 
+<!-- ══════════════════════════ INSTRUCTION ══════════════════════════════ -->
+<div class="max-w-5xl mx-auto mt-6 px-4">
+  <p class="text-slate-500 text-sm leading-relaxed">
+    Upload a binary classification dataset and get a meta-learning-based ranking of 8 feature selection algorithms across 5 performance criteria.
+  </p>
+</div>
+
 <!-- ══════════════════════════ STEPS ══════════════════════════════ -->
-<div id="steps-bar" class="max-w-5xl mx-auto mt-7 px-4 flex items-center gap-3 select-none">
+<div id="steps-bar" class="max-w-5xl mx-auto mt-5 px-4 flex items-center gap-3 select-none">
   <div class="flex items-center gap-2">
     <div id="dot-1" class="step-dot step-active">1</div>
     <span class="text-sm font-medium text-slate-600 hidden sm:block">Upload</span>
@@ -201,6 +206,50 @@
               <td>scikit-learn</td>
               <td><code>PCA</code></td>
               <td><code>pip install scikit-learn</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
+
+    <!-- Evaluation metrics -->
+    <details class="card p-7">
+      <summary class="text-sm font-semibold text-slate-600 select-none cursor-pointer">Evaluation metrics</summary>
+      <p class="text-sm text-slate-400 mt-1 mb-4">Criteria used to rank feature selection algorithms in the recommendation.</p>
+      <div class="overflow-x-auto rounded-xl border border-slate-100">
+        <table class="algo-table w-full">
+          <thead>
+            <tr>
+              <th class="text-left rounded-tl-xl">Metric</th>
+              <th class="text-left">Direction</th>
+              <th class="text-left rounded-tr-xl">Description</th>
+            </tr>
+          </thead>
+          <tbody class="text-slate-600">
+            <tr>
+              <td class="font-medium text-slate-800 th-accuracy">Balanced Accuracy</td>
+              <td>↑ Higher is better</td>
+              <td>Average per-class accuracy after feature selection, robust to class imbalance. Range [0, 1].</td>
+            </tr>
+            <tr>
+              <td class="font-medium text-slate-800 th-f1">F1 Score</td>
+              <td>↑ Higher is better</td>
+              <td>Harmonic mean of precision and recall after feature selection. Range [0, 1].</td>
+            </tr>
+            <tr>
+              <td class="font-medium text-slate-800 th-compression">Compression Ratio</td>
+              <td>↑ Higher is better</td>
+              <td>Fraction of features removed; 1 means all features discarded, 0 means none removed.</td>
+            </tr>
+            <tr>
+              <td class="font-medium text-slate-800 th-time">Feature Selection Time</td>
+              <td>↓ Lower is better</td>
+              <td>Wall-clock time (seconds) to run the feature selection algorithm on the dataset.</td>
+            </tr>
+            <tr>
+              <td class="font-medium text-slate-800 th-composite">Composite</td>
+              <td>↑ Higher is better</td>
+              <td>User-weighted average of Balanced Accuracy and Compression Ratio.</td>
             </tr>
           </tbody>
         </table>
