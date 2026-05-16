@@ -3,11 +3,11 @@
 
 # MetaFS
 
+**Meta-learning-based feature selection algorithm recommender for binary classification.**
+
 [![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Hugging Face Spaces](https://img.shields.io/badge/🤗%20Hugging%20Face-Spaces-orange)](https://huggingface.co/spaces/pedbrgs/metafs)
-
-**Meta-learning-based feature selection algorithm recommender for binary classification.**
 
 </div>
 
@@ -27,7 +27,7 @@ MetaFS is available as a [web application](https://huggingface.co/spaces/pedbrgs
 
 ## 🧠 Methodology
 
-Meta-learners are Ridge regression models trained on a metadataset of 40 benchmark classification datasets under a Leave-One-Dataset-Out (LODO) evaluation protocol. Predictions are generated instantly at inference time, providing ranked recommendations without running any feature selection method on the target dataset.
+Meta-learners are Ridge regression models trained on a metadataset of [40 benchmark classification datasets](https://github.com/pedbrgs/High-Dimensional-Datasets) under a Leave-One-Dataset-Out (LODO) evaluation protocol. Predictions are generated instantly at inference time, providing ranked recommendations without running any feature selection method on the target dataset.
 
 ---
 
