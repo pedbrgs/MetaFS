@@ -24,6 +24,7 @@ METHODS = [
     "Genetic Algorithm",
     "MRMR",
     "Mutual Information",
+    "PCA",
 ]
 
 TARGETS = [
@@ -53,8 +54,6 @@ LOG_TARGETS = {"MeanFeatureSelectionTime"}
 _METADATASET_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
-    "Repositories",
-    "Meta-Learning",
     "results",
     "metadataset.parquet",
 )
@@ -92,7 +91,7 @@ def _train_models() -> None:
             _models[(target, method)] = (scaler, model)
 
 
-# Train at import time (fast: 40 × 7 × 4 = 1120 rows, Ridge is instant).
+# Train at import time (fast: 40 × 8 × 4 = 1280 rows, Ridge is instant).
 _train_models()
 
 
